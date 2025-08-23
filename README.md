@@ -21,3 +21,13 @@
 6) One line to run as root:
 
 su -c "/data/data/com.termux/files/usr/bin/python3 /data/data/com.termux/files/home/scanner.py"
+
+
+v 0.3 Changelog
+
+1. Added colors
+2. Added ability to delete suspicious files.
+3. Added queue to capture skipped files and scan at the end of the process when Moderator queue becomes full.
+4. Added bulk whitelisting/deleting of files in folders with more than 5+ files including preview of suspicious files.
+
+WARNING: This script allows you to delete potentially critical files. USE AT YOUR OWN RISK. I am NOT RESPONSIBLE for any bricked devices or devices rendered unusable by using this software.
