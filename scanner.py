@@ -197,7 +197,7 @@ def spinner():
                     f"{GREEN}Files:{files_scanned}{RESET} | "
                     f"{RED}Suspicious:{len(suspicious_files)}{RESET} | "
                     f"{ORANGE}Deleted:{deleted_files}{RESET}")
-            sys.stdout.write("\r" + line + " " * 3)  # clear leftover chars
+            sys.stdout.write("\r" + line + " " * 1)  # clear leftover chars
             sys.stdout.flush()
             idx += 1
         time.sleep(0.1)
