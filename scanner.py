@@ -144,6 +144,11 @@ def is_suspicious(filepath):
         if folder.startswith(wh_folder):
             return False
 
+    # Skip excluded folders (match actual folder names anywhere in path)
+    parts = filepath.split(os.sep)
+    if any(part in EXCLUDED_FOLDERS for part in parts):
+        return False
+
     # Skip excluded APKs (check only the filename, not full path)
     filename = os.path.basename(filepath)
     if filename in EXCLUDED_APKS:
