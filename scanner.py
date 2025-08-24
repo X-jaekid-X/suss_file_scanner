@@ -144,8 +144,9 @@ def is_suspicious(filepath):
         if folder.startswith(wh_folder):
             return False
 
-    # Skip excluded APKs
-    if filepath in EXCLUDED_APKS:
+    # Skip excluded APKs (check only the filename, not full path)
+    filename = os.path.basename(filepath)
+    if filename in EXCLUDED_APKS:
         return False
 
     # Skip large files (too big for entropy check)
@@ -156,9 +157,12 @@ def is_suspicious(filepath):
     except Exception:
         return False
 
-    # Entropy check
-    ent = entropy(filepath)
-    return ent > 7.65 or heuristic_check(filepath)
+    # Entropy + heuristic check
+    try:
+        ent = entropy(filepath)
+        return ent > 7.65 or heuristic_check(filepath)
+    except Exception:
+        return False
 
 #----------------------------#
 # SHA-256 filesize check
