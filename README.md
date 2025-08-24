@@ -1,6 +1,6 @@
 ****Suspicious File Scanner****
 
-This script will scan your device's files for any files that have high entropy or fail a heuristic check.  When a suspicious file is found, you will be prompted to either whitelist or delete it.  You will need to customize EXCLUDED_EXTENSIONS, EXCLUDED_APKS, and EXCLUDED_FOLDERS to leave out anything you do not want included in a root scan.
+This script will scan your device's files for any files that have high entropy or fail a heuristic check.  When a suspicious file is found, you will be prompted to either whitelist or delete it.  You will need to customize EXCLUDED_EXTENSIONS, EXCLUDED_APKS, and EXCLUDED_FOLDERS to leave out anything you do not want included in a scan.  The whitelist and report are saved into the Downloads folder.  This is developed for Android.
 
 1) Save scanner.py into Download folder.
 2) Install Termux
