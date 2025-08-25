@@ -15,6 +15,7 @@ import threading
 import queue
 import datetime
 import time
+import stat
 
 #----------------------------#
 # Terminal color codes
@@ -204,6 +205,15 @@ def spinner():
 #----------------------------#
 # Scan Worker 
 #----------------------------#
+def is_safe_file(path):
+    try:
+        mode = os.stat(path, follow_symlinks=False).st_mode
+        # Only allow regular files
+        return stat.S_ISREG(mode)
+    except Exception:
+        return False
+
+
 def scan_worker():
     global files_scanned, suspicious_files, skipped_files, user_kept_files, deleted_files, halt_flag, scan_halted_by_enter, cleared_files
 
@@ -224,6 +234,11 @@ def scan_worker():
             break
 
         try:
+            # Skip special files that could cause hangs (FIFOs, sockets, devices, etc.)
+            if not is_safe_file(filepath):
+                skipped_files.append(filepath)
+                continue
+
             # Skip files already whitelisted
             if filepath in whitelisted_files:
                 skipped_files.append(filepath)
@@ -513,7 +528,7 @@ def walker(root_path, whitelisted_files, whitelisted_folders):
 #----------------------------#
 # Report generation
 #----------------------------#
-def generate_report():
+def generate_report(last_scanned=None, error=None):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     download_path = "/storage/emulated/0/Download"
     os.makedirs(download_path, exist_ok=True)
@@ -524,18 +539,30 @@ def generate_report():
             f.write(f"Suspicious: {len(suspicious_files)}\n")
             f.write(f"Deleted: {deleted_files}\n")
             f.write(f"(user kept): {len(user_kept_files)}\n")
-            if skipped_files:
-                f.write("Skipped files:\n")
-                for s in skipped_files:
-                    f.write(f"{s}\n")
+            f.write(f"Skipped files: {len(skipped_files)}\n")
+
+            if user_kept_files:
+                f.write("\nUser-kept files:\n")
+                for kept in user_kept_files:
+                    f.write(f"{kept}\n")
+
+            if error:
+                f.write("\n--- ERROR DETECTED ---\n")
+                f.write(f"{error}\n")
+                if last_scanned:
+                    f.write(f"Last scanned file before error: {last_scanned}\n")
+
         # Save whitelist back to file
         with open(WHITELIST_FILE, "a") as w:
             for path in whitelisted_files:
                 w.write(path + "\n")
             for folder in whitelisted_folders:
                 w.write(folder + "\n")
+
         return report_path
-    except Exception:
+    except Exception as e:
+        # Fallback if even writing report fails
+        print(f"Report could not be saved: {e}")
         return None
 
 #----------------------------#
