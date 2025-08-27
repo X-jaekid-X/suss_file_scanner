@@ -369,7 +369,7 @@ def moderator():
                 choice = input("Whitelist all files in this folder? (y/n or stop): ").strip().lower()
 
             if choice == 'y':
-                # Only add suspicious files to user_kept_files
+                # Only add specifically kept files to user_kept_files
                 for name in eligible_names:
                     path_f = os.path.join(folder, name)
                     if path_f not in whitelisted_files:
