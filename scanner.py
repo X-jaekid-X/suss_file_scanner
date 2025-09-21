@@ -914,7 +914,7 @@ if __name__ == "__main__":
     # Profile selection
     current_profile = select_scan_profile()
     
-    print("\nPress Enter or Ctrl + C at any time to halt scanning.\n")
+    print("\nPress Enter or Ctrl + C at any time to halt scanning.")
 
     spinner_thread = threading.Thread(target=spinner, daemon=True)
     spinner_thread.start()
