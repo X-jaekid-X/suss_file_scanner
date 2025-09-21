@@ -34,3 +34,15 @@ v 0.3 Changelog
 5. Can exclude files such as "com.android.maps" within file paths via EXCLUDED_APKS.
 
 WARNING: This script allows you to delete potentially critical files. USE AT YOUR OWN RISK. I am NOT RESPONSIBLE for any bricked devices or devices rendered unusable by using this software.
+
+
+v 0.4 Changelog
+
+1) Added scanning profiles (quick or thorough)
+2) Adjusts output size based on terminal screen width
+3) Added progress bar and percentage
+4) Added ELF and MZ malware signature detection
+5) Added file estimator
+6) Fixed spacing
+
+WARNING: This script allows you to delete potentially critical files. USE AT YOUR OWN RISK. I am NOT RESPONSIBLE for any bricked devices or devices rendered unusable by using this software.
