@@ -2,7 +2,7 @@
 #----------------------------#
 #  Suspicious File Scanner   #
 #         by jaekid          #
-#            v0.3            #
+#            v0.4            #
 #----------------------------#
 
 import os
@@ -25,6 +25,30 @@ GREEN="\033[32m"
 RED="\033[31m"
 ORANGE="\033[38;5;208m"
 YELLOW="\033[93m"
+BLUE="\033[34m"
+
+#----------------------------#
+# Scan Profiles Configuration
+#----------------------------#
+SCAN_PROFILES = {
+    'quick': {
+        'max_file_size': 10 * 1024 * 1024,  # 10MB
+        'entropy_threshold': 7.8,
+        'skip_system_dirs': True,
+        'system_dirs': ['/system', '/proc', '/dev', '/sys', 'Android/data', 'Android/obb'],
+        'description': 'Quick scan - smaller files, higher threshold, skips system directories'
+    },
+    'thorough': {
+        'max_file_size': 50 * 1024 * 1024,  # 50MB
+        'entropy_threshold': 7.65,
+        'skip_system_dirs': False,
+        'system_dirs': [],
+        'description': 'Thorough scan - larger files, lower threshold, scans all directories'
+    }
+}
+
+# Current scan profile (will be set by user choice)
+current_profile = None
 
 #----------------------------#
 # Global variables
@@ -34,6 +58,7 @@ suspicious_files = []
 deleted_files = 0
 user_kept_files = []
 skipped_files = []
+estimated_total_files = 0  # Add this for progress tracking
 
 file_queue = queue.Queue()
 mod_requests = queue.Queue()  # Worker -> Moderator
@@ -41,7 +66,7 @@ spinner_lock = threading.Lock()
 halt_flag = False
 scan_halted_by_enter = False
 in_prompt = False
-spinner_active = True
+spinner_active = False  # Start with spinner disabled
 run_event = threading.Event()
 run_event.set()
 whitelisted_files = set()
@@ -89,12 +114,11 @@ def load_whitelist():
 #----------------------------#
 # Configuration
 #----------------------------#
-EXCLUDED_EXTENSIONS = ['.mp4', '.avi', '.jpg', '.jpeg', '.png', '.gif', '.txt', '.mp3', '.3gp', '.ogg', '.log', '.m4a', '.m4u', '.prof', '.0']
-EXCLUDED_APKS = []
-EXCLUDED_FOLDERS = []
+EXCLUDED_EXTENSIONS = ['.mp4', '.avi', '.jpg', '.jpeg', '.png', '.gif', '.txt', '.mp3', '.3gp', '.ogg', '.log', '.m4a', '.m4u', '.prof', '.0', '.so', '.a', '.dylib', '.chk', '.blk', '.sgv']
+EXCLUDED_APKS = ['base.odex', 'base.dm', 'base.apk', 'split_config.arm64_v8a.apk', 'split_config.hdpi.apk', '0', '1', '2', '3', '4']
+EXCLUDED_FOLDERS = ['cache']
 
 CHUNK_SIZE = 8192
-MAX_ENTROPY_FILE_SIZE = 50 * 1024 * 1024  # 50 MB max for entropy check
 
 #----------------------------#
 # Utility functions
@@ -122,9 +146,56 @@ def heuristic_check(filepath):
     ext = os.path.splitext(filepath)[1].lower()
     if ext in EXCLUDED_EXTENSIONS:
         return False  # skip heuristic for excluded files
-    suspicious_keywords = ["temp", "cache", ".nomedia", "thumbnail", "thumbnails"]
+    suspicious_keywords = ["thumbnail", "thumbnails"]
     filename = os.path.basename(filepath).lower()
     return any(keyword in filename for keyword in suspicious_keywords)
+
+def should_skip_system_dir(filepath):
+    """Check if filepath is in a system directory that should be skipped"""
+    if not current_profile['skip_system_dirs']:
+        return False
+    
+    for sys_dir in current_profile['system_dirs']:
+        if sys_dir in filepath:
+            return True
+    return False
+
+def should_skip_extension(filepath):
+    """Check if file extension should be skipped"""
+    ext = os.path.splitext(filepath)[1].lower()
+    return ext in EXCLUDED_EXTENSIONS
+
+def get_display_length(text):
+    """Get the actual display length of text, ignoring ANSI color codes"""
+    import re
+    # Remove ANSI escape sequences
+    ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    return len(ansi_escape.sub('', text))
+
+#----------------------------#
+# Check if file is malware
+#----------------------------#
+MALWARE_SIGNATURES = {
+    b'\x4d\x5a': 'PE executable',  # MZ header
+    b'\x7f\x45\x4c\x46': 'ELF executable',  # ELF header
+}
+
+def check_file_signature(filepath):
+    """Check file against known malware signatures"""
+    try:
+        # Skip legitimate library files
+        ext = os.path.splitext(filepath)[1].lower()
+        if ext in ['.so', '.a', '.dylib']:  # Skip shared libraries
+            return None
+            
+        with open(filepath, 'rb') as f:
+            header = f.read(16)
+            for sig, description in MALWARE_SIGNATURES.items():
+                if header.startswith(sig):
+                    return description
+    except:
+        pass
+    return None
 
 #----------------------------#
 # Check if file is suspicious
@@ -154,18 +225,26 @@ def is_suspicious(filepath):
     if any(part in EXCLUDED_APKS for part in parts):
         return False
 
-    # Skip large files (too big for entropy check)
+    # Skip system directories based on profile
+    if should_skip_system_dir(filepath):
+        return False
+
+    # Skip large files based on profile (too big for entropy check)
     try:
         size = os.path.getsize(filepath)
-        if size > MAX_ENTROPY_FILE_SIZE:
+        if size > current_profile['max_file_size']:
             return False
     except Exception:
         return False
 
-    # Entropy + heuristic check
+    # Check for malware signatures first (fast check)
+    if check_file_signature(filepath):
+        return True
+
+    # Entropy + heuristic check with profile-specific threshold
     try:
         ent = entropy(filepath)
-        return ent > 7.65 or heuristic_check(filepath)
+        return ent > current_profile['entropy_threshold'] or heuristic_check(filepath)
     except Exception:
         return False
 
@@ -186,20 +265,124 @@ def sha256_file(filepath):
         return None
 
 #----------------------------#
+# File estimator
+#----------------------------#
+def estimate_total_files(root_path):
+    """Estimate total files to scan for progress tracking"""
+    global estimated_total_files
+    print(f"\n{BLUE}Estimating files to scan...{RESET}")
+    
+    total = 0
+    try:
+        for dirpath, dirnames, filenames in os.walk(root_path):
+            # Apply the same filtering logic as the walker
+            
+            # Skip whitelisted folders  
+            dirnames[:] = [d for d in dirnames if os.path.join(dirpath, d) not in whitelisted_folders]
+            
+            # Skip system directories based on profile
+            if current_profile['skip_system_dirs']:
+                dirnames[:] = [d for d in dirnames if not any(sys_dir in os.path.join(dirpath, d) for sys_dir in current_profile['system_dirs'])]
+            
+            # Count files that would actually be scanned
+            for filename in filenames:
+                filepath = os.path.join(dirpath, filename)
+                
+                # Skip whitelisted files (don't count them)
+                if filepath in whitelisted_files:
+                    continue
+                    
+                # Skip excluded file types (same logic as walker)
+                if should_skip_extension(filepath):
+                    continue
+                    
+                # Skip system directories based on profile
+                if should_skip_system_dir(filepath):
+                    continue
+                
+                total += 1
+                
+                # Cap estimation for performance and show progress
+                if total > 1000000:  # 1,000,000 file max estimation
+                    print(f"\n{YELLOW}Large directory detected. Estimation capped at 1,000,000+ files.{RESET}")
+                    estimated_total_files = total
+                    return total
+                    
+                # Show progress every 20,000 files
+                if total % 20000 == 0:
+                    sys.stdout.write(f"\r{BLUE}Estimating... {total:,} files found{RESET}")
+                    sys.stdout.flush()
+                    
+    except Exception as e:
+        print(f"{RED}Error during estimation: {e}{RESET}")
+        estimated_total_files = 1000  # Fallback estimate
+        return 1000
+    
+    estimated_total_files = total
+    # Clear any progress line and print final result on a clean line
+    sys.stdout.write(f"\r{' ' * 80}\r{GREEN}Estimation complete: {total:,} files to scan{RESET}\n")
+    sys.stdout.flush()
+    return total
+
+#----------------------------#
+# Terminal width detection
+#----------------------------#
+def get_terminal_width():
+    """Get terminal width, default to 80 if unable to detect"""
+    try:
+        import shutil
+        return shutil.get_terminal_size().columns
+    except:
+        return 80
+
+#----------------------------#
 # Spinner
 #----------------------------#
 def spinner():
     symbols = "|/-\\"
     idx = 0
+    profile_name = "Quick" if current_profile == SCAN_PROFILES['quick'] else "Thorough"
+    last_line_length = 0
+    
     while not halt_flag:
-        if not in_prompt:  # pause while moderator is prompting
+        if not in_prompt and spinner_active:  # pause while moderator is prompting
+            # Calculate progress percentage
+            progress_percent = 0
+            if estimated_total_files > 0:
+                progress_percent = min(100, (files_scanned / estimated_total_files) * 100)
+            
+            # Create smaller progress bar with 10% increments
+            bar_width = 10
+            filled_width = int(bar_width * (progress_percent // 10) / 10)  # Round to 10% increments
+            bar = "█" * filled_width + "░" * (bar_width - filled_width)
+            
+            # Build the full line as designed
             line = (f"{GREEN}Scanning... {symbols[idx % len(symbols)]}{RESET} | "
-                    f"{GREEN}Files:{files_scanned}{RESET} | "
-                    f"{RED}Suspicious:{len(suspicious_files)}{RESET} | "
+                    f"{BLUE}[{bar}] {progress_percent:.0f}%{RESET} | "
+                    f"{GREEN}{files_scanned:,}/{estimated_total_files:,}{RESET} | "
+                    f"{RED}Suss:{len(suspicious_files)}{RESET} | "
                     f"{ORANGE}Deleted:{deleted_files}{RESET}")
-            sys.stdout.write("\r" + line + " " * 1)  # clear leftover chars
+            
+            # Get terminal width and check display length (not raw string length)
+            term_width = get_terminal_width()
+            display_length = get_display_length(line)
+            
+            if display_length > term_width:
+                # Calculate how much to truncate from the actual display length
+                truncate_at = term_width - 3  # Reserve 3 chars for "..."
+                
+                # Truncate while preserving color codes
+                line = line[:len(line) - (display_length - truncate_at)] + "..."
+            
+            # Clear previous line completely before writing new one
+            clear_chars = max(0, last_line_length - get_display_length(line))
+            sys.stdout.write("\r" + line + " " * clear_chars)
             sys.stdout.flush()
-            idx += 1
+            last_line_length = get_display_length(line)
+            
+            # Only increment when we actually display
+            idx = (idx + 1) % len(symbols)
+        
         time.sleep(0.1)
 
 #----------------------------#
@@ -212,7 +395,6 @@ def is_safe_file(path):
         return stat.S_ISREG(mode)
     except Exception:
         return False
-
 
 def scan_worker():
     global files_scanned, suspicious_files, skipped_files, user_kept_files, deleted_files, halt_flag, scan_halted_by_enter, cleared_files
@@ -239,7 +421,7 @@ def scan_worker():
                 skipped_files.append(filepath)
                 continue
 
-            # Skip files already whitelisted
+            # Skip files already whitelisted - DON'T count them in files_scanned
             if filepath in whitelisted_files:
                 skipped_files.append(filepath)
                 continue
@@ -255,6 +437,7 @@ def scan_worker():
                     skipped_files.append(filepath)
                     continue
 
+            # Only increment files_scanned for files that are actually processed
             files_scanned += 1
 
             if is_suspicious(filepath):
@@ -337,8 +520,9 @@ def moderator():
 
         # Show folder message once
         if folder not in announced_folders:
+            print()
             print(f"\n{YELLOW}Folder with suspicious file(s) detected: {folder}{RESET}")
-            print(f"{YELLOW}Please be patient while the folder is scanned...{RESET}\n")
+            print(f"\n{BLUE}Please be patient while the folder is scanned...{RESET}\n")
             announced_folders.add(folder)
 
         # Determine suspicious files
@@ -361,13 +545,15 @@ def moderator():
             preview_text = "\n".join(eligible_names[:5])
             remaining = len(eligible_names) - 5
             choice = None
-            print(f"[Whitelist] Suspicious folder preview:\n{preview_text}")
+            print(f"[Whitelist] Suspicious folder preview:\n\n{preview_text}")
             if remaining > 0:
                 print(f"...and {remaining} more.")
+                print()
 
             while choice not in ('y', 'n', 'stop') and not halt_flag:
                 choice = input("Whitelist all files in this folder? (y/n or stop): ").strip().lower()
 
+            print()
             if choice == 'y':
                 # Only add specifically kept files to user_kept_files
                 for name in eligible_names:
@@ -410,7 +596,7 @@ def moderator():
                     path_f = os.path.join(folder, name)
                     if path_f in whitelisted_files:
                         continue
-
+                    
                     single_choice = None
                     while single_choice not in ('y', 'n', 'stop') and not halt_flag:
                         print()
@@ -496,6 +682,7 @@ def moderator():
         in_prompt = False
         run_event.set()
         mod_requests.task_done()
+        print()
 
 #----------------------------#
 # File Walker
@@ -511,15 +698,26 @@ def walker(root_path, whitelisted_files, whitelisted_folders):
         # Skip whitelisted folders
         dirnames[:] = [d for d in dirnames if os.path.join(dirpath, d) not in whitelisted_folders]
 
+        # Skip system directories based on profile
+        if current_profile['skip_system_dirs']:
+            dirnames[:] = [d for d in dirnames if not any(sys_dir in os.path.join(dirpath, d) for sys_dir in current_profile['system_dirs'])]
+
         for filename in filenames:
             if halt_flag:
                 break
 
             filepath = os.path.join(dirpath, filename)
 
+            # Skip whitelisted files (same as estimation logic)
+            if filepath in whitelisted_files:
+                continue
+
             # Skip excluded file types
-            ext = os.path.splitext(filename)[1].lower()
-            if ext in EXCLUDED_EXTENSIONS:
+            if should_skip_extension(filepath):
+                continue
+
+            # Skip system directories based on profile
+            if should_skip_system_dir(filepath):
                 continue
 
             # Queue the file for scanning
@@ -532,14 +730,20 @@ def generate_report(last_scanned=None, error=None):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     download_path = "/storage/emulated/0/Download"
     os.makedirs(download_path, exist_ok=True)
-    report_path = os.path.join(download_path, f"Scan_Report_{timestamp}.txt")
+    profile_name = "Quick" if current_profile == SCAN_PROFILES['quick'] else "Thorough"
+    report_path = os.path.join(download_path, f"Scan_Report_{profile_name}_{timestamp}.txt")
     try:
         with open(report_path, 'w') as f:
-            f.write(f"Files scanned: {files_scanned}\n")
-            f.write(f"Suspicious: {len(suspicious_files)}\n")
+            f.write(f"Scan Profile: {profile_name}\n")
+            f.write(f"Max file size: {current_profile['max_file_size'] / (1024*1024):.0f}MB\n")
+            f.write(f"Entropy threshold: {current_profile['entropy_threshold']}\n")
+            f.write(f"Skip system dirs: {current_profile['skip_system_dirs']}\n")
+            f.write(f"Estimated total files: {estimated_total_files:,}\n")
+            f.write(f"\nFiles scanned: {files_scanned:,}\n")
+            f.write(f"Suss: {len(suspicious_files)}\n")
             f.write(f"Deleted: {deleted_files}\n")
             f.write(f"(user kept): {len(user_kept_files)}\n")
-            f.write(f"Skipped files: {len(skipped_files)}\n")
+            f.write(f"Skipped files: {len(skipped_files):,}\n")
 
             if user_kept_files:
                 f.write("\nUser-kept files:\n")
@@ -600,11 +804,33 @@ def enter_listener():
         run_event.set()
 
 #----------------------------#
+# Profile Selection
+#----------------------------#
+def select_scan_profile():
+    """Prompt user to select scan profile and return the selected profile."""
+    print(f"\n{BLUE}Available Scan Profiles:{RESET}\n")
+    print(f"{GREEN}[q] Quick:{RESET} {SCAN_PROFILES['quick']['description']}")
+    print(f"{YELLOW}[t] Thorough:{RESET} {SCAN_PROFILES['thorough']['description']}")
+    print()
+    
+    while True:
+        choice = input("Please enter 'q' for quick scan or 't' for thorough scan: ").strip().lower()
+        
+        if choice == 'q':
+            print(f"{GREEN}Quick scan selected.{RESET}")
+            return SCAN_PROFILES['quick']
+        elif choice == 't':
+            print(f"{YELLOW}Thorough scan selected.{RESET}")
+            return SCAN_PROFILES['thorough']
+        else:
+            print(f"{RED}Invalid choice. Please enter 'q' for quick or 't' for thorough.{RESET}")
+
+#----------------------------#
 # Start Scan
 #----------------------------#
 def start_scan():
     """Kick off walker + worker threads and wait for completion or halt."""
-    global halt_flag
+    global halt_flag, spinner_active
 
     # Load whitelist
     whitelisted = load_whitelist()
@@ -612,6 +838,28 @@ def start_scan():
         whitelisted_files.add(f)
     for d in whitelisted["folders"]:
         whitelisted_folders.add(d)
+
+    # Determine root scan path
+    root_scan = "/storage/emulated/0"
+    try:
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            root_scan = "/"
+    except Exception:
+        pass
+
+    # DISABLE spinner during estimation
+    spinner_active = False
+    
+    # Estimate total files BEFORE starting threads
+    estimate_total_files(root_scan)
+    print()  # Add spacing after estimation
+
+    # NOW enable spinner and start the spinner and enter listener threads
+    spinner_active = True
+    spinner_thread = threading.Thread(target=spinner, daemon=True)
+    spinner_thread.start()
+    enter_thread = threading.Thread(target=enter_listener, daemon=True)
+    enter_thread.start()
 
     # Start moderator thread
     mod_thread = threading.Thread(target=moderator, daemon=True)
@@ -626,13 +874,6 @@ def start_scan():
         t.start()
 
     # Start walker (producer)
-    root_scan = "/storage/emulated/0"
-    try:
-        if hasattr(os, "geteuid") and os.geteuid() == 0:
-            root_scan = "/"
-    except Exception:
-        pass
-
     w = threading.Thread(target=walker, args=(root_scan, whitelisted_files, whitelisted_folders), daemon=True)
     w.start()
 
@@ -655,6 +896,10 @@ def start_scan():
 
     # Tell moderator no more prompts
     mod_requests.put(None)
+    
+    # Stop spinner
+    spinner_active = False
+    spinner_thread.join(timeout=1.0)
 
 #----------------------------#
 # Main execution
@@ -663,9 +908,13 @@ if __name__ == "__main__":
     print("#----------------------------#\n"
           "#  Suspicious File Scanner   #\n"
           "#         by jaekid          #\n"
-          "#            v0.3            #\n"
+          "#            v0.4            #\n"
           "#----------------------------#")
-    print("Press Enter or Ctrl + C at any time to halt scanning.\n")
+    
+    # Profile selection
+    current_profile = select_scan_profile()
+    
+    print("\nPress Enter or Ctrl + C at any time to halt scanning.\n")
 
     spinner_thread = threading.Thread(target=spinner, daemon=True)
     spinner_thread.start()
@@ -689,14 +938,15 @@ if __name__ == "__main__":
 
     # Generate report and show result
     report_file = generate_report()
-    print()  # blank line before report file path
     if report_file:
         print(f"Report saved to {report_file}\n")
     else:
         print("Report could not be saved.\n")
 
     # Final summary
+    profile_name = "Quick" if current_profile == SCAN_PROFILES['quick'] else "Thorough"
+    print(f"{BLUE}Scan Profile: {profile_name}{RESET}")
     print(f"{GREEN}Files scanned: {files_scanned}{RESET}, "
-          f"{RED}Suspicious: {len(suspicious_files)}{RESET}, "
+          f"{RED}Suss: {len(suspicious_files)}{RESET}, "
           f"{ORANGE}Deleted: {deleted_files}{RESET}, "
           f"{YELLOW}(user kept): {len(user_kept_files)}{RESET}\n")
