@@ -348,8 +348,9 @@ def spinner():
         if not in_prompt and spinner_active:  # pause while moderator is prompting
             # Calculate progress percentage
             progress_percent = 0
-            if estimated_total_files > 0:
-                progress_percent = min(100, (files_scanned / estimated_total_files) * 100)
+            effective_total = estimated_total_files - len(skipped_files)
+            if effective_total > 0:
+                progress_percent = min(100, (files_scanned / effective_total) * 100)
             
             # Create smaller progress bar with 10% increments
             bar_width = 10
@@ -359,7 +360,7 @@ def spinner():
             # Build the full line as designed
             line = (f"{GREEN}Scanning... {symbols[idx % len(symbols)]}{RESET} | "
                     f"{BLUE}[{bar}] {progress_percent:.0f}%{RESET} | "
-                    f"{GREEN}{files_scanned:,}/{estimated_total_files:,}{RESET} | "
+                    f"{GREEN}{files_scanned:,}/{estimated_total_files - len(skipped_files):,}{RESET} | "
                     f"{RED}Suss:{len(suspicious_files)}{RESET} | "
                     f"{ORANGE}Deleted:{deleted_files}{RESET}")
             
