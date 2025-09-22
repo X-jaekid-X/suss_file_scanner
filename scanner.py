@@ -2,7 +2,7 @@
 #----------------------------#
 #  Suspicious File Scanner   #
 #         by jaekid          #
-#            v0.4            #
+#            v0.5            #
 #----------------------------#
 
 import os
@@ -320,7 +320,7 @@ def estimate_total_files(root_path):
     
     estimated_total_files = total
     # Clear any progress line and print final result on a clean line
-    sys.stdout.write(f"\r{' ' * 80}\r{GREEN}Estimation complete: {total:,} files to scan{RESET}\n")
+    sys.stdout.write(f"\r{' ' * 80}\r{GREEN}Estimation complete: ~{total:,} files to scan{RESET}\n")
     sys.stdout.flush()
     return total
 
@@ -360,7 +360,7 @@ def spinner():
             # Build the full line as designed
             line = (f"{GREEN}Scanning... {symbols[idx % len(symbols)]}{RESET} | "
                     f"{BLUE}[{bar}] {progress_percent:.0f}%{RESET} | "
-                    f"{GREEN}{files_scanned:,}/{estimated_total_files - len(skipped_files):,}{RESET} | "
+                   #f"{GREEN}{files_scanned:,}/{estimated_total_files - len(skipped_files):,}{RESET} | "
                     f"{RED}Suss:{len(suspicious_files)}{RESET} | "
                     f"{ORANGE}Deleted:{deleted_files}{RESET}")
             
@@ -800,7 +800,7 @@ def enter_listener():
     # If scanning stopped from elsewhere, also print message
     if halt_flag and not scan_halted_by_enter:
         scan_halted_by_enter = True
-        sys.stdout.write("\nProcess halted. Please wait while report is generated...\n")
+        sys.stdout.write("\nScan halted. Please wait while report is generated...")
         sys.stdout.flush()
         run_event.set()
 
@@ -905,24 +905,37 @@ def start_scan():
 #----------------------------#
 # Main execution
 #----------------------------#
-if __name__ == "__main__"
+if __name__ == "__main__":
 
     print("\033[2J\033[H", end="") # Clear the screen
-    print("#----------------------------#\n"
-          "#  Suspicious File Scanner   #\n"
-          "#         by jaekid          #\n"
-          "#            v0.4            #\n"
-          "#----------------------------#")
+    print(f"""
+{BLUE}╔═══════════════════════════════════════════════╗{RESET}
+{BLUE}║{RESET}       {RED}███████╗██╗   ██╗███████╗███████╗{RESET}       {BLUE}║{RESET}
+{BLUE}║{RESET}       {RED}██╔════╝██║   ██║██╔════╝██╔════╝{RESET}       {BLUE}║{RESET}
+{BLUE}║{RESET}       {RED}███████╗██║   ██║███████╗███████╗{RESET}       {BLUE}║{RESET}
+{BLUE}║{RESET}       {RED}╚════██║██║   ██║╚════██║╚════██║{RESET}       {BLUE}║{RESET}
+{BLUE}║{RESET}       {RED}███████║╚██████╔╝███████║███████║{RESET}       {BLUE}║{RESET}
+{BLUE}║{RESET}       {RED}╚══════╝ ╚═════╝ ╚══════╝╚══════╝{RESET}       {BLUE}║{RESET}
+{BLUE}║{RESET}                                               {BLUE}║{RESET}
+{BLUE}║{RESET}       {RED}███████╗ ██████╗ █████╗ ███╗   ██╗{RESET}      {BLUE}║{RESET}
+{BLUE}║{RESET}       {RED}██╔════╝██╔════╝██╔══██╗████╗  ██║{RESET}      {BLUE}║{RESET}
+{BLUE}║{RESET}       {RED}███████╗██║     ███████║██╔██╗ ██║{RESET}      {BLUE}║{RESET}
+{BLUE}║{RESET}       {RED}╚════██║██║     ██╔══██║██║╚██╗██║{RESET}      {BLUE}║{RESET}
+{BLUE}║{RESET}       {RED}███████║╚██████╗██║  ██║██║ ╚████║{RESET}      {BLUE}║{RESET}
+{BLUE}║{RESET}       {RED}╚══════╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═══╝{RESET}      {BLUE}║{RESET}
+{BLUE}║{RESET}                                               {BLUE}║{RESET}
+{BLUE}║{RESET}        {YELLOW}SUSPICIOUS FILE SCANNER v0.5{RESET}           {BLUE}║{RESET}
+{BLUE}║{RESET}                 {GREEN}by jaekid{RESET}                     {BLUE}║{RESET}
+{BLUE}╚═══════════════════════════════════════════════╝{RESET}
+""")
     
     # Profile selection
     current_profile = select_scan_profile()
     
-    print("\nPress Enter or Ctrl + C at any time to halt scanning.")
+    print("\nPress Enter or Ctrl + C at any time to halt scanning.\n")
 
-    spinner_thread = threading.Thread(target=spinner, daemon=True)
-    spinner_thread.start()
-    enter_thread = threading.Thread(target=enter_listener, daemon=True)
-    enter_thread.start()
+    # Ensure spinner is disabled before starting
+    spinner_active = False
 
     try:
         start_scan()
@@ -932,7 +945,6 @@ if __name__ == "__main__"
 
     # Stop the spinner and ensure the line ends
     spinner_active = False
-    spinner_thread.join(timeout=1.0)
     print()  # end spinner line
 
     print()  # blank line before report message
