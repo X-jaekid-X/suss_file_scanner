@@ -46,3 +46,9 @@ v 0.4 Changelog
 6) Fixed spacing
 
 WARNING: This script allows you to delete potentially critical files. USE AT YOUR OWN RISK. I am NOT RESPONSIBLE for any bricked devices or devices rendered unusable by using this software.
+
+v 0.5 Changelog
+
+1) Fixed spinner
+2) Added clear screen on launch
+3) Added logo
