@@ -924,8 +924,8 @@ if __name__ == "__main__":
 {BLUE}║{RESET}       {RED}███████║╚██████╗██║  ██║██║ ╚████║{RESET}      {BLUE}║{RESET}
 {BLUE}║{RESET}       {RED}╚══════╝ ╚═════╝╚═╝  ╚═╝╚═╝  ╚═══╝{RESET}      {BLUE}║{RESET}
 {BLUE}║{RESET}                                               {BLUE}║{RESET}
-{BLUE}║{RESET}        {YELLOW}SUSPICIOUS FILE SCANNER v0.5{RESET}           {BLUE}║{RESET}
-{BLUE}║{RESET}                 {GREEN}by jaekid{RESET}                     {BLUE}║{RESET}
+{BLUE}║{RESET}          {YELLOW}SUSPICIOUS FILE SCANNER v0.5{RESET}         {BLUE}║{RESET}
+{BLUE}║{RESET}                   {GREEN}by jaekid{RESET}                   {BLUE}║{RESET}
 {BLUE}╚═══════════════════════════════════════════════╝{RESET}
 """)
     
