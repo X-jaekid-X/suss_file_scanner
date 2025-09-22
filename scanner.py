@@ -905,7 +905,9 @@ def start_scan():
 #----------------------------#
 # Main execution
 #----------------------------#
-if __name__ == "__main__":
+if __name__ == "__main__"
+
+    print("\033[2J\033[H", end="") # Clear the screen
     print("#----------------------------#\n"
           "#  Suspicious File Scanner   #\n"
           "#         by jaekid          #\n"
